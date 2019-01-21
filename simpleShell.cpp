@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <fstream>
+#include <dirent.h>
 #include <algorithm>
 
 using namespace std;
@@ -58,19 +60,153 @@ char** convert(vector<string>& s) {//convert string to char*[]
     return result; 
 }
 
-string removeSpaces(string str) { 
-    int i = 0, j = 0; 
-    while (str[i]) { 
-        if (str[i] != ' ') 
-           str[j++] = str[i]; 
-           i++; 
-    } 
-    str[j] = '\0'; 
-    return str; 
+void sigHandler(int sigNum){
 }
 
-void sigHandler(int sigNum)
-{
+string pwd(){
+    char* cwd = getcwd( 0, 0 ) ; // **** microsoft specific ****
+    std::string working_directory(cwd) ;
+    std::free(cwd) ;
+    return working_directory ;
+}
+
+void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newCmd, string outFileName){ //input redirector
+    vector<string> parsedCmd;
+    if(containsLessThan){
+        parsedCmd = parse(newCmd, "<");
+        //get cmd before < 
+        string part1_cmd = parsedCmd[0];
+        cout << "part1_cmd: "<< part1_cmd<<endl;
+        vector<string> parsedSpacePart1 = parse(part1_cmd, " ");
+        char** cmdArgvs = convert(parsedSpacePart1); //convert vector<string> to char** ended with 0
+        char* cmdName = cmdArgvs[0];
+        //get filename
+        string part2_fileName = parsedCmd[1];
+        cout<<"part2_fileName: "<<part2_fileName<<endl;
+        part2_fileName.erase(remove(part2_fileName.begin(), part2_fileName.end(), ' '), part2_fileName.end()); //eliminate spaces
+        char* fileName = new char[part2_fileName.length()+1];
+        strcpy(fileName,part2_fileName.c_str());
+        //file descriptor handling
+        int fd = open(fileName, O_RDONLY);
+        if(fd == -1){
+            perror("ERROR: ");
+            exit(1);
+        }
+        dup2(fd,STDIN_FILENO);
+        close(fd);
+        if(containsNestGreaterThan){
+            //get file name
+            string filePath = pwd() + '/' + outFileName;
+            char* fileName = new char[filePath.length()+1];
+            strcpy(fileName,filePath.c_str());
+            mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+            int fd = creat(fileName, mode);
+            if(fd == -1){
+                perror("ERROR: ");
+                exit(1);
+            }
+            dup2(fd,STDOUT_FILENO);
+            close(fd);
+        }
+        execvp(cmdName, cmdArgvs);
+        perror("ERROR: ");
+        exit(1);
+    } else{
+        parsedCmd = parse(newCmd, ">");
+        //get cmd before >
+        string part1_cmd = parsedCmd[0];
+        vector<string> parsedSpacePart1 = parse(part1_cmd, " ");
+        char** cmdArgvs = convert(parsedSpacePart1); //convert vector<string> to char** ended with 0
+        char* cmdName = cmdArgvs[0];
+        //get file name
+        string filePath = pwd() + '/' + outFileName;
+        char* fileName = new char[filePath.length()+1];
+        strcpy(fileName,filePath.c_str());
+        mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+        int fd = creat(fileName, mode);
+        if(fd == -1){
+            perror("ERROR: ");
+            exit(1);
+        }
+        dup2(fd,STDOUT_FILENO);
+        close(fd);
+        execvp(cmdName, cmdArgvs);
+        perror("ERROR: ");
+        exit(1);
+    }
+}
+
+void init(bool prompt, string& cmd, bool& isBackground){
+    if(prompt){
+        cout<<"shell: ";
+    }
+    getline(cin,cmd);
+    int andCount = 0;
+
+    while(cmd[cmd.length()-1]==' ' || cmd[cmd.length()-1]=='&'){ //remove possible trailing spaces
+        if(cmd[cmd.length()-1]=='&'){
+            isBackground = true;
+            andCount++;
+        }
+        cmd = cmd.substr(0,cmd.length()-1);
+    }
+    if(andCount>1){
+        perror("ERROR: ");
+    }
+}
+
+void execPipedArgs(int pipeCount){
+
+}
+
+void outRedirector(string cmd, string newCmd, int index, bool containsLessThan, bool containsNestGreaterThan){
+    int start = index;
+    int fileNameLength = 0;
+    while(start!=cmd.length()-1){ //starts from >
+        start++;
+        fileNameLength++;
+    }
+    string outFileName = cmd.substr(index+1,fileNameLength);
+    outFileName.erase(remove(outFileName.begin(), outFileName.end(), ' '), outFileName.end()); //eliminate spaces
+    execIRArgs(containsLessThan, containsNestGreaterThan, newCmd, outFileName);
+}
+
+void execArgs(string newCmd){
+    vector<string> parsedCmd = parse(newCmd, " "); 
+    char** cmdArgvs = convert(parsedCmd); //convert vector<string> to char** ended with 0
+    execvp(cmdArgvs[0], cmdArgvs);
+    perror("ERROR: ");
+    exit(1);
+}
+
+void execNoPipe(string cmd){
+    int containsInput = checkSymbol(cmd,'<'); //check input redirector
+    int index = 0;
+    char curr = cmd[index];
+    while(curr!='>' && index!=cmd.length()-1){
+        index++;
+        curr = cmd[index];
+    }
+    string newCmd;
+    if (index==cmd.length()-1){ 
+        newCmd = cmd.substr(0,index+1);
+    } else{ //index = >
+        newCmd = cmd.substr(0,index); //(position,length)
+    }
+    cout <<"newCmd: " <<newCmd<<endl;
+    if(containsInput==-1){ //not found <   
+        if(index==cmd.length()-1){
+            execArgs(newCmd);
+        } else{ //contains >, if cmd = ls > 3, then newCmd = ls
+            outRedirector(cmd, newCmd, index, false, false);
+        }
+    } else{ //contains <
+        if(index==cmd.length()-1){
+            execIRArgs(true, false, newCmd, "stub"); //containsLessThan = true, scontainsNestGreaterThan = false, stub for outFileName, cannot use NULL for unknown bug
+        } else{ //if(curr=='>')
+            outRedirector(cmd, newCmd, index, true, true);
+        }
+    }
 }
 
 int main(int argc, char *argv[]){
@@ -78,65 +214,29 @@ int main(int argc, char *argv[]){
     if(argc>1 && strcmp(argv[1],"-n")==0){ //cmd contains -n
         prompt = false;
     }
-    do{
-        if(prompt){
-            cout<<"shell: ";
-        }
+    do{  
         string cmd;
-        getline(cin,cmd);
         bool isBackground = false;
-        if(cmd[cmd.length()-1]=='&'){
-            isBackground = true;
-        }
+        init(prompt, cmd, isBackground);
         pid_t pid = fork();
-        if(pid==0){ //child process, execute the cmd
-            int containsInput = checkSymbol(cmd,'<'); //check input redirector
-            //find the correct substring of cmd to execute i.e. cat (<) 1| sort -> cat (<) 1
-            int index = 0;
-            char curr = cmd[index];
-            while(curr!='|' && curr!='>'&& curr!='&'){
-                //TODO!!! pipe or output redirector handling
-                index++;
-                curr = cmd[index];
-            }
-            string newCmd = cmd.substr(0,index); //copy until reaching another symbol. i.e. cat (<) 1 & -> cat (<) 1 
-
-            if(containsInput==-1){ //not found <
-                vector<string> parsedCmd = parse(newCmd, " "); 
-                char** cmdArgvs = convert(parsedCmd); //convert vector<string> to char** ended with 0
-                execvp(cmdArgvs[0], cmdArgvs);
-                perror("ERROR: ");
-                exit(1);
-            } else{ //contains <
-                vector<string> parsedCmd = parse(newCmd, "<");
-                //get cmd before < 
-                string part1_cmd = parsedCmd[0];
-                vector<string> parsedSpacePart1 = parse(part1_cmd, " ");
-                char** cmdArgvs = convert(parsedSpacePart1); //convert vector<string> to char** ended with 0
-                char* cmdName = cmdArgvs[0];
-                //get filename
-                string part2_fileName = parsedCmd[1];
-                part2_fileName.erase(remove(part2_fileName.begin(), part2_fileName.end(), ' '), part2_fileName.end()); //eliminate spaces
-                char* fileName = new char[part2_fileName.length()+1];
-                strcpy(fileName,part2_fileName.c_str());
-                //file descriptor handling
-                int fd = open(fileName, O_RDONLY);
-                if(fd == -1){
-                    perror("ERROR: ");
-                    exit(1);
-                }
-                dup2(fd,STDIN_FILENO);
-                close(fd);
-                execvp(cmdName, cmdArgvs);
-                perror("ERROR: ");
-                exit(1);
-            }
+        if(pid<0){
+            perror("ERROR: ");
+            exit(1);
+        } else if(pid==0){ //child process, execute the cmd
+            vector<string> parsedPipe = parse(cmd,"|"); //Check if contains pipe
+            if(parsedPipe.size()>1){
+                int pipeCount = parsedPipe.size()-1;
+                //execPipedArgs(pipeCount);
+            } else {
+                execNoPipe(cmd);
+            }    
         } else{ //parent process
             if(!isBackground){ // no &
                 while (true) {
                     int status;
                     // waitpid(-1,&status, 0);
                     // exit(status);
+
                     pid_t done = waitpid(-1,&status, 0);
                     if (done < 0) { //wait for child process
                         if (errno == ECHILD) break; // no more child processes
@@ -148,6 +248,7 @@ int main(int argc, char *argv[]){
                     }
                 }
             } else{ //run in background
+                wait(NULL);
                 signal(SIGCHLD,sigHandler);
             }
         }
