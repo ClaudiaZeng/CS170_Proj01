@@ -65,8 +65,8 @@ void sigHandler(int sigNum){
 
 string pwd(){
     char* cwd = getcwd( 0, 0 ) ; // **** microsoft specific ****
-    std::string working_directory(cwd) ;
-    std::free(cwd) ;
+    string working_directory(cwd) ;
+    free(cwd) ;
     return working_directory ;
 }
 
@@ -82,7 +82,6 @@ void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newC
         char* cmdName = cmdArgvs[0];
         //get filename
         string part2_fileName = parsedCmd[1];
-        cout<<"part2_fileName: "<<part2_fileName<<endl;
         part2_fileName.erase(remove(part2_fileName.begin(), part2_fileName.end(), ' '), part2_fileName.end()); //eliminate spaces
         char* fileName = new char[part2_fileName.length()+1];
         strcpy(fileName,part2_fileName.c_str());
@@ -96,11 +95,10 @@ void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newC
         close(fd);
         if(containsNestGreaterThan){
             //get file name
-            string filePath = pwd() + '/' + outFileName;
-            char* fileName = new char[filePath.length()+1];
-            strcpy(fileName,filePath.c_str());
+            char* fileName = new char[outFileName.length()+1];
+            strcpy(fileName,outFileName.c_str());
             mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-            int fd = creat(fileName, mode);
+            int fd = open(fileName, O_CREAT|O_WRONLY|O_TRUNC, mode);
             if(fd == -1){
                 perror("ERROR: ");
                 exit(1);
@@ -108,9 +106,11 @@ void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newC
             dup2(fd,STDOUT_FILENO);
             close(fd);
         }
-        execvp(cmdName, cmdArgvs);
-        perror("ERROR: ");
-        exit(1);
+        int exe = execvp(cmdName, cmdArgvs);
+        if(exe == -1){
+            perror("ERROR: ");
+            exit(1);
+        }
     } else{
         parsedCmd = parse(newCmd, ">");
         //get cmd before >
@@ -118,21 +118,23 @@ void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newC
         vector<string> parsedSpacePart1 = parse(part1_cmd, " ");
         char** cmdArgvs = convert(parsedSpacePart1); //convert vector<string> to char** ended with 0
         char* cmdName = cmdArgvs[0];
+        cout << "part1_cmd: "<< part1_cmd<<endl;
         //get file name
-        string filePath = pwd() + '/' + outFileName;
-        char* fileName = new char[filePath.length()+1];
-        strcpy(fileName,filePath.c_str());
+        char* fileName = new char[outFileName.length()+1];
+        strcpy(fileName,outFileName.c_str());
         mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-        int fd = creat(fileName, mode);
+        int fd = open(fileName, O_CREAT|O_WRONLY|O_TRUNC, mode);
         if(fd == -1){
             perror("ERROR: ");
             exit(1);
         }
         dup2(fd,STDOUT_FILENO);
         close(fd);
-        execvp(cmdName, cmdArgvs);
-        perror("ERROR: ");
-        exit(1);
+        int exe = execvp(cmdName, cmdArgvs);
+        if(exe == -1){
+            perror("ERROR: ");
+            exit(1);
+        }
     }
 }
 
@@ -155,10 +157,6 @@ void init(bool prompt, string& cmd, bool& isBackground){
     }
 }
 
-void execPipedArgs(int pipeCount){
-
-}
-
 void outRedirector(string cmd, string newCmd, int index, bool containsLessThan, bool containsNestGreaterThan){
     int start = index;
     int fileNameLength = 0;
@@ -173,10 +171,16 @@ void outRedirector(string cmd, string newCmd, int index, bool containsLessThan, 
 
 void execArgs(string newCmd){
     vector<string> parsedCmd = parse(newCmd, " "); 
+    cout << "I am here"<<endl;
     char** cmdArgvs = convert(parsedCmd); //convert vector<string> to char** ended with 0
-    execvp(cmdArgvs[0], cmdArgvs);
-    perror("ERROR: ");
-    exit(1);
+    cout << "I am here"<<endl;
+    int exe = execvp(cmdArgvs[0], cmdArgvs);
+    cout<<"exe: "<<exe<<endl;
+    if(exe == -1){
+        cout << "I am here"<<endl;
+        perror("ERROR: ");
+        exit(1);
+    }
 }
 
 void execNoPipe(string cmd){
@@ -209,6 +213,75 @@ void execNoPipe(string cmd){
     }
 }
 
+void execPipedArgs(vector<string> parsedPipe, int pipeCount){
+    const int read = 0;
+    const int write = 1;
+    int status;
+    int pipefds[2*pipeCount]; //2 for each pipe
+    for(int i = 0; i < pipeCount; i++){
+        if(pipe(pipefds + i*2) < 0) {
+            perror("ERROR: ");
+            exit(EXIT_FAILURE);
+        }
+    }
+    for(int i=0;i<parsedPipe.size();i++){ //# of cmd
+        pid_t pid = fork();
+        if(pid<0){ //fork failed
+            perror("ERROR: ");
+            exit(EXIT_FAILURE);
+        } else if(pid==0){ //child process, check if still contains pipe
+            if(i==0){
+                if(close(pipefds[read])<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+                if(dup2(pipefds[write], STDOUT_FILENO)<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+            } else if(i==parsedPipe.size()-1){ 
+                if(close(pipefds[2*(i-1)+write])<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+                if(dup2(pipefds[2*(i-1)+read], STDIN_FILENO)<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                if(close(pipefds[2*(i-1)+write])<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+                if(close(pipefds[2*i+read])<0){
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+                if(dup2(pipefds[2*(i-1)+read], STDIN_FILENO)<0){ //read from previous pipe
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+                if(dup2(pipefds[2*i+write], STDOUT_FILENO)<0){ //write to next pipe
+                    perror("ERROR: ");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            cout<<"parsedPipe: "<<parsedPipe[i]<<endl;
+            execNoPipe(parsedPipe[i]);
+        } else{
+        }
+    }
+    for(int i = 0; i < 2*pipeCount; i++){
+        if(close(pipefds[i])<0){
+            perror("ERROR: ");
+            exit(EXIT_FAILURE);
+        }
+    }
+    for(int i = 0; i < pipeCount + 1; i++){
+        wait(&status);
+    }
+}
+
 int main(int argc, char *argv[]){
     bool prompt = true;
     if(argc>1 && strcmp(argv[1],"-n")==0){ //cmd contains -n
@@ -226,7 +299,7 @@ int main(int argc, char *argv[]){
             vector<string> parsedPipe = parse(cmd,"|"); //Check if contains pipe
             if(parsedPipe.size()>1){
                 int pipeCount = parsedPipe.size()-1;
-                //execPipedArgs(pipeCount);
+                execPipedArgs(parsedPipe, pipeCount);
             } else {
                 execNoPipe(cmd);
             }    
@@ -234,15 +307,13 @@ int main(int argc, char *argv[]){
             if(!isBackground){ // no &
                 while (true) {
                     int status;
-                    // waitpid(-1,&status, 0);
-                    // exit(status);
-
                     pid_t done = waitpid(-1,&status, 0);
                     if (done < 0) { //wait for child process
                         if (errno == ECHILD) break; // no more child processes
                     } else {
                         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-                            cerr << "pid " << done << " failed" << endl;
+                            // cerr << "pid " << done << " failed" << endl;
+                            // perror("ERROR: ");
                             int exit(1);
                         }
                     }
