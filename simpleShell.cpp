@@ -218,7 +218,7 @@ void execNoPipe(string cmd){
     }
 }
 
-bool checkChangeDir(string cmd){
+void checkChangeDir(string cmd){
     int findCD = checkSymbol(cmd, "cd");
     if(findCD!=-1){
         vector<string> parsedCmd = parse(cmd, " ");
@@ -226,11 +226,9 @@ bool checkChangeDir(string cmd){
         strcpy(dir,parsedCmd[parsedCmd.size()-1].c_str());
         if(chdir(dir)<0){
             perror("ERROR");
-            exit(1);
+            int exit(1);
         }
-        return true;
     }
-    return false;
 }
 
 void checkMultipleRedirector(vector<string> parsedPipe){
@@ -303,6 +301,7 @@ int main(int argc, char *argv[]){
         string cmd;
         bool isBackground = false;
         bool validation = init(prompt, cmd, isBackground);
+        checkChangeDir(cmd);
         if(validation){
             pid_t pid = fork();
             if(pid<0){
@@ -314,9 +313,7 @@ int main(int argc, char *argv[]){
                     checkMultipleRedirector(parsedPipe);
                     execPipedArgs(parsedPipe, 0, STDIN_FILENO);
                 } else {
-                    if(!checkChangeDir(cmd)){
-                        execNoPipe(cmd);
-                    }
+                    execNoPipe(cmd);
                 }
             } else{ //parent process
                 if(!isBackground){ // no &
@@ -334,7 +331,8 @@ int main(int argc, char *argv[]){
                         }
                     }
                 } else{ //run in background
-                    wait(NULL);
+                    int status;
+                    waitpid(pid,&status,0);
                     signal(SIGCHLD,sigHandler);
                 }
             }
