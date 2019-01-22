@@ -274,37 +274,6 @@ void execPipedArgs(vector<string> parsedPipe, int pipeCount){
             cout<<"parsedPipeCmd: "<<parsedPipe[i]<<endl;
             execNoPipe(parsedPipe[i]);
         } else{
-            // if(i==0){
-            //     if(close(pipefds[read])<0){
-            //         perror("ERROR");
-            //         exit(EXIT_FAILURE);
-            //     }
-            // } else if(i==parsedPipe.size()-1){ 
-            //     if(close(pipefds[2*(i-1)+write])<0){
-            //         perror("ERROR");
-            //         exit(EXIT_FAILURE);
-            //     }
-            // } else {
-            //     if(close(pipefds[2*(i-1)+write])<0){
-            //         perror("ERROR");
-            //         exit(EXIT_FAILURE);
-            //     }
-            //     if(close(pipefds[2*i+read])<0){
-            //         perror("ERROR");
-            //         exit(EXIT_FAILURE);
-            //     }
-            // }
-            // wait(&status);
-            // pid_t done = waitpid(-1,&status, 0);
-            // if (done < 0) { //wait for child process
-            //     if (errno == ECHILD) break; // no more child processes
-            // } else {
-            //     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-            //         // cerr << "pid " << done << " failed" << endl;
-            //         // perror("ERROR");
-            //         int exit(1);
-            //     }
-            // }
         }
     }
     for(int i = 0; i < 2*pipeCount; i++){
@@ -317,47 +286,6 @@ void execPipedArgs(vector<string> parsedPipe, int pipeCount){
         wait(&status);
     }
 }
-
-// struct command{
-//     const char **argv;
-// };
-
-// int spawn_proc (int in, int out, struct command *cmd){
-//     pid_t pid;
-//     if((pid=fork())==0){
-//         if(in!=0){
-//             dup2(in,0);
-//             close(in);
-//         }
-//         if(out!=1){
-//             dup2(out,1);
-//             close(out);
-//         }
-//         return execvp(cmd->argv[0], (char*const*)cmd->argv);
-//     }
-//     return pid;
-// }
-
-// void pipes(int pipeCount, struct command *cmd){
-//     int i;
-//     pid_t pid;
-//     int in, fd[2];
-//     in = 0;
-
-//     for(i = 0; i<=pipeCount;i++){
-//         pipe(fd);
-//         spawn_proc(in, fd[1], cmd + i);
-//         close (fd[1]);
-//         in = fd[0];
-//     }
-//     if(in !=0){
-//         dup2(in, STDIN_FILENO);
-//     }
-
-//     execvp(cmd[i].argv[0],(char*const*)cmd[i].argv);
-//     perror("ERROR");
-//     exit(1);
-// }
 
 bool checkChangeDir(string cmd){
     int findCD = checkSymbol(cmd, "cd");
@@ -391,14 +319,7 @@ int main(int argc, char *argv[]){
             } else if(pid==0){ //child process, execute the cmd
                 vector<string> parsedPipe = parse(cmd,"|"); //Check if contains pipe
                 if(parsedPipe.size()>1){
-                    // cout<<"I am here"<<endl;
                     int pipeCount = parsedPipe.size()-1;
-                    // const char *ls[] = { "ls", "-l", 0 };
-                    // const char *awk[] = { "awk", "{print $1}", 0 };
-                    // const char *sort[] = { "sort", 0 };
-                    // const char *uniq[] = { "uniq", 0 };
-                    // struct command cmd [] = { {ls}, {awk}, {sort}, {uniq} };
-                    // pipes(4, cmd);
                     execPipedArgs(parsedPipe, pipeCount);
                 } else {
                     if(!checkChangeDir(cmd)){
