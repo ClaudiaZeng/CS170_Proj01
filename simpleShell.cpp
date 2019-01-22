@@ -6,7 +6,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <cctype>
-#include <sys/stat.h> 
+#include <sys/stat.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -58,7 +58,7 @@ char** convert(vector<string>& s) {//convert string to char*[]
         result[i] = converted;
     }
     result[s.size()] = 0 ;
-    return result; 
+    return result;
 }
 
 void sigHandler(int sigNum){
@@ -75,7 +75,7 @@ void execIRArgs(bool containsLessThan, bool containsNestGreaterThan, string newC
     vector<string> parsedCmd;
     if(containsLessThan){
         parsedCmd = parse(newCmd, "<");
-        //get cmd before < 
+        //get cmd before <
         string part1_cmd = parsedCmd[0];
         vector<string> parsedSpacePart1 = parse(part1_cmd, " ");
         char** cmdArgvs = convert(parsedSpacePart1); //convert vector<string> to char** ended with 0
@@ -148,7 +148,7 @@ bool init(bool prompt, string& cmd, bool& isBackground){
         exit(1);
     }
     int andCount = 0;
-
+    
     while(cmd[cmd.length()-1]==' ' || cmd[cmd.length()-1]=='&'){ //remove possible trailing spaces
         if(cmd[cmd.length()-1]=='&'){
             isBackground = true;
@@ -177,7 +177,7 @@ void outRedirector(string cmd, string newCmd, int index, bool containsLessThan, 
 }
 
 void execArgs(string newCmd){
-    vector<string> parsedCmd = parse(newCmd, " "); 
+    vector<string> parsedCmd = parse(newCmd, " ");
     char** cmdArgvs = convert(parsedCmd); //convert vector<string> to char** ended with 0
     //
     int exe = execvp(cmdArgvs[0], cmdArgvs);
@@ -197,12 +197,12 @@ void execNoPipe(string cmd){
         curr = cmd[index];
     }
     string newCmd;
-    if (index==cmd.length()-1){ 
+    if (index==cmd.length()-1){
         newCmd = cmd.substr(0,index+1);
     } else{ //index = >
         newCmd = cmd.substr(0,index); //(position,length)
     }
-    if(containsInput==-1){ //not found <   
+    if(containsInput==-1){ //not found <
         if(index==cmd.length()-1){
             execArgs(newCmd);
         } else{ //contains >, if cmd = ls > 3, then newCmd = ls
@@ -244,7 +244,7 @@ void execPipedArgs(vector<string> parsedPipe, int pipeCount){
                     perror("ERROR");
                     exit(EXIT_FAILURE);
                 }
-            } else if(i==parsedPipe.size()-1){ 
+            } else if(i==parsedPipe.size()-1){
                 if(close(pipefds[2*(i-1)+write])<0){
                     perror("ERROR");
                     exit(EXIT_FAILURE);
@@ -279,7 +279,7 @@ void execPipedArgs(vector<string> parsedPipe, int pipeCount){
             //         perror("ERROR");
             //         exit(EXIT_FAILURE);
             //     }
-            // } else if(i==parsedPipe.size()-1){ 
+            // } else if(i==parsedPipe.size()-1){
             //     if(close(pipefds[2*(i-1)+write])<0){
             //         perror("ERROR");
             //         exit(EXIT_FAILURE);
@@ -374,12 +374,55 @@ bool checkChangeDir(string cmd){
     return false;
 }
 
+void execPipedArgs(vector<string> parsedPipe, int pos, int fd_in){ // pipe testing
+    const int read = 0;
+    const int write = 1;
+    int pipeCount = parsedPipe.size()-1;
+    
+    if (pos==parsedPipe.size()-1){ // last command
+        if (fd_in != STDIN_FILENO){
+            if (dup2(fd_in, STDIN_FILENO)<0){
+                perror("ERROR: ");
+                exit(EXIT_FAILURE);
+            }
+            close(fd_in);
+        }
+        execNoPipe(parsedPipe[pos]);
+    } else{
+        int fd[2];
+        if (pipe(fd) < 0){ // fail to create pipe
+            perror("ERROR: ");
+            exit(EXIT_FAILURE);
+        }
+        pid_t pid = fork();
+        if (pid < 0){ // fork failed
+            perror("ERROR: ");
+            exit(EXIT_FAILURE);
+        } else if(pid == 0){ // child executing
+            close(fd[0]);
+            if (dup2(fd_in, STDIN_FILENO)<0) // read from fd_in
+                perror("ERROR: ");
+            if (dup2(fd[1], STDOUT_FILENO)<0)   // write to fd[1]
+                perror("ERROR: ");
+            else if (close(fd[1])<0)
+                perror("ERROR: ");
+            else {
+                execNoPipe(parsedPipe[pos]);
+            }
+        } else{ // parent
+            close(fd[1]);
+            close(fd_in);
+            execPipedArgs(parsedPipe, pos+1, fd[0]); //recursively call exePipeArgs(3)
+        }
+    }
+}
+
 int main(int argc, char *argv[]){
     bool prompt = true;
     if(argc>1 && strcmp(argv[1],"-n")==0){ //cmd contains -n
         prompt = false;
     }
-    do{  
+    do{
         string cmd;
         bool isBackground = false;
         bool validation = init(prompt, cmd, isBackground);
@@ -399,12 +442,13 @@ int main(int argc, char *argv[]){
                     // const char *uniq[] = { "uniq", 0 };
                     // struct command cmd [] = { {ls}, {awk}, {sort}, {uniq} };
                     // pipes(4, cmd);
-                    execPipedArgs(parsedPipe, pipeCount);
+                    execPipedArgs(parsedPipe, 0, STDIN_FILENO);// pipe testing
+                    //execPipedArgs(parsedPipe, pipeCount);
                 } else {
                     if(!checkChangeDir(cmd)){
                         execNoPipe(cmd);
-                    }  
-                }    
+                    }
+                }
             } else{ //parent process
                 if(!isBackground){ // no &
                     while (true) {
@@ -426,7 +470,8 @@ int main(int argc, char *argv[]){
                 }
             }
         }
-
+        
     } while (true);
     return 0;
 }
+
