@@ -1,5 +1,7 @@
 Author: Claudia Zeng (4493821), Kerry Mo (4583522)
+
 Date: 01/22/2019
+
 CS 170 Project 1
 
 ### Description
